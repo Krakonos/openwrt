@@ -31,6 +31,23 @@ define Device/askey_sbe1v1k
 endef
 TARGET_DEVICES += askey_sbe1v1k
 
+define Device/compex_ap-al02-3
+	$(call Device/FitImage)
+	$(call Device/UbiFit)
+	DEVICE_VENDOR := Compex
+	DEVICE_MODEL := AP.AL02.3
+	BLOCKSIZE := 128k
+	PAGESIZE := 2048
+	DEVICE_DTS_CONFIG := config@al02-c16
+	SOC := ipq9574
+	DEVICE_PACKAGES := kmod-ath11k-ahb ath11k-firmware-ipq9574 \
+		kmod-ath12k ath12k-firmware-qcn9274 kmod-phy-aquantia \
+		kmod-usb-storage kmod-usb-storage-uas kmod-fs-vfat kmod-fs-ext4 \
+		kmod-nls-cp437 kmod-nls-iso8859-1 usbutils
+	IMAGE/factory.ubi := append-ubi | qsdk-ipq-factory-nand
+endef
+TARGET_DEVICES += compex_ap-al02-3
+
 define Device/linksys_ln6001
 	$(call Device/FitImage)
 	DEVICE_VENDOR := Linksys

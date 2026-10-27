@@ -1,0 +1,779 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR BSD-3-Clause)
+/*
+ * Compex AP.AL02.3 board device tree source
+ *
+ * IPQ9574 (AP-AL02-C16 reference design variant) embedded board with
+ * 4x 1GbE (QCA8075, PSGMII), 2x 10GbE (AQR113C, USXGMII), the SoC-internal
+ * 2.4 GHz radio and four M.2 E-key PCIe slots (Qualcomm module pinout).
+ * The SFP cage (wired to the QCA8075 combo port, 1G only and shared with
+ * lan5) is not supported.
+ *
+ * Copyright (c) 2020-2021 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2023-2024, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2026 Ladislav Laska <krakonos@krakonos.org>
+ */
+
+/dts-v1/;
+
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
+#include <dt-bindings/leds/common.h>
+#include "ipq9574.dtsi"
+
+/ {
+	model = "Compex AP.AL02.3";
+	compatible = "compex,ap-al02-3", "qcom,ipq9574";
+
+	aliases {
+		serial0 = &blsp1_uart2;
+	};
+
+	chosen {
+		stdout-path = "serial0:115200n8";
+		/* bootipq passes root=mtd:ubi_rootfs, the QSDK volume name */
+		bootargs-append = " root=/dev/ubiblock0_1";
+	};
+
+	regulator_fixed_3p3: s3300 {
+		compatible = "regulator-fixed";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		regulator-boot-on;
+		regulator-always-on;
+		regulator-name = "fixed_3p3";
+	};
+
+	regulator_fixed_0p925: s0925 {
+		compatible = "regulator-fixed";
+		regulator-min-microvolt = <925000>;
+		regulator-max-microvolt = <925000>;
+		regulator-boot-on;
+		regulator-always-on;
+		regulator-name = "fixed_0p925";
+	};
+
+	/* The WPS key and the LED sit on an external board behind FFC J19. */
+	gpio-keys {
+		compatible = "gpio-keys";
+		pinctrl-0 = <&gpio_keys_default>;
+		pinctrl-names = "default";
+
+		button-wps {
+			label = "wps";
+			linux,code = <KEY_WPS_BUTTON>;
+			gpios = <&tlmm 37 GPIO_ACTIVE_LOW>;
+			debounce-interval = <60>;
+		};
+	};
+
+	leds {
+		compatible = "gpio-leds";
+		pinctrl-0 = <&gpio_leds_default>;
+		pinctrl-names = "default";
+
+		led-0 {
+			function = LED_FUNCTION_WLAN_2GHZ;
+			gpios = <&tlmm 64 GPIO_ACTIVE_LOW>;
+			default-state = "off";
+		};
+	};
+};
+
+&blsp1_uart2 {
+	pinctrl-0 = <&uart2_pins>;
+	pinctrl-names = "default";
+	status = "okay";
+};
+
+/*
+ * Only s1 is listed. The RDP433 LDO map does not apply to this board: its
+ * RPM rejects l5 (-ENXIO), and requesting l2 at 1.8V kills the UNIPHY
+ * SerDes (no traffic on any port). The vendor firmware leaves both alone.
+ */
+&rpm_requests {
+	regulators {
+		compatible = "qcom,rpm-mp5496-regulators";
+
+		ipq9574_s1: s1 {
+			regulator-min-microvolt = <725000>;
+			regulator-max-microvolt = <1075000>;
+		};
+	};
+};
+
+&sleep_clk {
+	clock-frequency = <32000>;
+};
+
+&ref_48mhz_clk {
+	clock-div = <1>;
+	clock-mult = <1>;
+};
+
+/*
+ * xo_board_clk is fixed at 24 MHz, routed from the 48 MHz WiFi output
+ * clock divided by 2.
+ */
+&xo_board_clk {
+	clock-div = <2>;
+	clock-mult = <1>;
+};
+
+&xo_clk {
+	clock-frequency = <48000000>;
+};
+
+&tlmm {
+	spi_0_pins: spi-0-state {
+		pins = "gpio11", "gpio12", "gpio13", "gpio14";
+		function = "blsp0_spi";
+		drive-strength = <8>;
+		bias-disable;
+	};
+
+	gpio_keys_default: gpio-keys-default-state {
+		pins = "gpio37";
+		function = "gpio";
+		drive-strength = <8>;
+		bias-pull-up;
+	};
+
+	gpio_leds_default: gpio-leds-default-state {
+		pins = "gpio64";
+		function = "gpio";
+		drive-strength = <8>;
+		bias-pull-up;
+	};
+
+	/*
+	 * gpio36 resets both AQR113C. U-Boot loads their firmware; asserting
+	 * the reset drops it and the driver then reloads it from 0:ethphyfw
+	 * (about 10 s per PHY), so hold it released instead.
+	 */
+	aqr-reset-hog {
+		gpio-hog;
+		gpios = <36 GPIO_ACTIVE_LOW>;
+		output-low;
+		line-name = "aqr113c-reset";
+	};
+
+	qpic_snand_default_state: qpic-snand-default-state {
+		clock-pins {
+			pins = "gpio5";
+			function = "qspi_clk";
+			drive-strength = <8>;
+			bias-disable;
+		};
+
+		cs-pins {
+			pins = "gpio4";
+			function = "qspi_cs";
+			drive-strength = <8>;
+			bias-disable;
+		};
+
+		data-pins {
+			pins = "gpio0", "gpio1", "gpio2", "gpio3";
+			function = "qspi_data";
+			drive-strength = <8>;
+			bias-disable;
+		};
+	};
+
+	pcie0_default: pcie0-default-state {
+		clkreq-n-pins {
+			pins = "gpio22";
+			function = "pcie0_clk";
+			drive-strength = <6>;
+			bias-pull-up;
+		};
+
+		perst-n-pins {
+			pins = "gpio23";
+			function = "gpio";
+			drive-strength = <8>;
+			bias-pull-down;
+			output-low;
+		};
+
+		wake-n-pins {
+			pins = "gpio24";
+			function = "pcie0_wake";
+			drive-strength = <6>;
+			bias-pull-up;
+		};
+	};
+
+	pcie1_default: pcie1-default-state {
+		clkreq-n-pins {
+			pins = "gpio25";
+			function = "pcie1_clk";
+			drive-strength = <6>;
+			bias-pull-up;
+		};
+
+		perst-n-pins {
+			pins = "gpio26";
+			function = "gpio";
+			drive-strength = <8>;
+			bias-pull-down;
+			output-low;
+		};
+
+		wake-n-pins {
+			pins = "gpio27";
+			function = "pcie1_wake";
+			drive-strength = <6>;
+			bias-pull-up;
+		};
+	};
+
+	pcie2_default: pcie2-default-state {
+		clkreq-n-pins {
+			pins = "gpio28";
+			function = "pcie2_clk";
+			drive-strength = <6>;
+			bias-pull-up;
+		};
+
+		perst-n-pins {
+			pins = "gpio29";
+			function = "gpio";
+			drive-strength = <8>;
+			bias-pull-down;
+			output-low;
+		};
+
+		wake-n-pins {
+			pins = "gpio30";
+			function = "pcie2_wake";
+			drive-strength = <6>;
+			bias-pull-up;
+		};
+	};
+
+	pcie3_default: pcie3-default-state {
+		clkreq-n-pins {
+			pins = "gpio31";
+			function = "pcie3_clk";
+			drive-strength = <6>;
+			bias-pull-up;
+		};
+
+		perst-n-pins {
+			pins = "gpio32";
+			function = "gpio";
+			drive-strength = <8>;
+			bias-pull-up;
+			output-low;
+		};
+
+		wake-n-pins {
+			pins = "gpio33";
+			function = "pcie3_wake";
+			drive-strength = <6>;
+			bias-pull-up;
+		};
+	};
+};
+
+&qpic_bam {
+	status = "okay";
+};
+
+&qpic_nand {
+	pinctrl-0 = <&qpic_snand_default_state>;
+	pinctrl-names = "default";
+	status = "okay";
+
+	flash@0 {
+		compatible = "spi-nand";
+		reg = <0>;
+		#address-cells = <1>;
+		#size-cells = <1>;
+		nand-ecc-engine = <&qpic_nand>;
+		nand-ecc-strength = <4>;
+		nand-ecc-step-size = <512>;
+
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			partition@0 {
+				label = "0:training";
+				reg = <0x0 0x80000>;
+				read-only;
+			};
+
+			partition@80000 {
+				label = "0:license";
+				reg = <0x80000 0x40000>;
+				read-only;
+			};
+
+			partition@c0000 {
+				label = "rootfs";
+				reg = <0xc0000 0x3c00000>;
+			};
+
+			partition@3cc0000 {
+				label = "rootfs_1";
+				reg = <0x3cc0000 0x3c00000>;
+			};
+		};
+	};
+};
+
+/*
+ * Four M.2 E-key slots, all empty on this unit:
+ *   pcie0 (gpio22/23/24) - J3, x1
+ *   pcie1 (gpio25/26/27) - J5, x1
+ *   pcie2 (gpio28/29/30) - J6, x2
+ *   pcie3 (gpio31/32/33) - J4, x2
+ */
+&pcie0_phy {
+	status = "okay";
+};
+
+&pcie0 {
+	pinctrl-0 = <&pcie0_default>;
+	pinctrl-names = "default";
+	perst-gpios = <&tlmm 23 GPIO_ACTIVE_LOW>;
+	wake-gpios = <&tlmm 24 GPIO_ACTIVE_LOW>;
+	status = "okay";
+};
+
+&pcie1_phy {
+	status = "okay";
+};
+
+&pcie1 {
+	pinctrl-0 = <&pcie1_default>;
+	pinctrl-names = "default";
+	perst-gpios = <&tlmm 26 GPIO_ACTIVE_LOW>;
+	wake-gpios = <&tlmm 27 GPIO_ACTIVE_LOW>;
+	status = "okay";
+};
+
+&pcie2_phy {
+	status = "okay";
+};
+
+&pcie2 {
+	pinctrl-0 = <&pcie2_default>;
+	pinctrl-names = "default";
+	perst-gpios = <&tlmm 29 GPIO_ACTIVE_LOW>;
+	wake-gpios = <&tlmm 30 GPIO_ACTIVE_LOW>;
+	status = "okay";
+};
+
+&pcie3_phy {
+	status = "okay";
+};
+
+&pcie3 {
+	pinctrl-0 = <&pcie3_default>;
+	pinctrl-names = "default";
+	perst-gpios = <&tlmm 32 GPIO_ACTIVE_LOW>;
+	wake-gpios = <&tlmm 33 GPIO_ACTIVE_LOW>;
+	status = "okay";
+};
+
+/*
+ * SoC-integrated 2.4 GHz radio, four U.FL (I-PEX MHF1) connectors CH0-CH3 = chains 0-3
+ * (antenna mask 0x1, 0x2, 0x4, 0x8)
+ */
+&q6v5_wcss {
+	status = "okay";
+};
+
+&wifi0 {
+	qcom,ath11k-calibration-variant = "Compex-AP-AL02.3";
+	status = "okay";
+};
+
+&blsp1_spi0 {
+	pinctrl-0 = <&spi_0_pins>;
+	pinctrl-names = "default";
+	status = "okay";
+
+	flash@0 {
+		compatible = "jedec,spi-nor";
+		reg = <0>;
+		#address-cells = <1>;
+		#size-cells = <1>;
+		spi-max-frequency = <50000000>;
+
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			partition@0 {
+				label = "0:sbl1";
+				reg = <0x0 0xc0000>;
+				read-only;
+			};
+
+			partition@c0000 {
+				label = "0:mibib";
+				reg = <0xc0000 0x10000>;
+				read-only;
+			};
+
+			partition@d0000 {
+				label = "0:bootconfig";
+				reg = <0xd0000 0x20000>;
+				read-only;
+			};
+
+			partition@f0000 {
+				label = "0:bootconfig1";
+				reg = <0xf0000 0x20000>;
+				read-only;
+			};
+
+			partition@110000 {
+				label = "0:qsee";
+				reg = <0x110000 0x180000>;
+				read-only;
+			};
+
+			partition@290000 {
+				label = "0:qsee_1";
+				reg = <0x290000 0x180000>;
+				read-only;
+			};
+
+			partition@410000 {
+				label = "0:devcfg";
+				reg = <0x410000 0x10000>;
+				read-only;
+			};
+
+			partition@420000 {
+				label = "0:devcfg_1";
+				reg = <0x420000 0x10000>;
+				read-only;
+			};
+
+			partition@430000 {
+				label = "0:apdp";
+				reg = <0x430000 0x10000>;
+				read-only;
+			};
+
+			partition@440000 {
+				label = "0:apdp_1";
+				reg = <0x440000 0x10000>;
+				read-only;
+			};
+
+			partition@450000 {
+				label = "0:tme";
+				reg = <0x450000 0x40000>;
+				read-only;
+			};
+
+			partition@490000 {
+				label = "0:tme_1";
+				reg = <0x490000 0x40000>;
+				read-only;
+			};
+
+			partition@4d0000 {
+				label = "0:rpm";
+				reg = <0x4d0000 0x20000>;
+				read-only;
+			};
+
+			partition@4f0000 {
+				label = "0:rpm_1";
+				reg = <0x4f0000 0x20000>;
+				read-only;
+			};
+
+			partition@510000 {
+				label = "0:cdt";
+				reg = <0x510000 0x10000>;
+				read-only;
+			};
+
+			partition@520000 {
+				label = "0:cdt_1";
+				reg = <0x520000 0x10000>;
+				read-only;
+			};
+
+			partition@530000 {
+				label = "0:appsblenv";
+				reg = <0x530000 0x10000>;
+			};
+
+			partition@540000 {
+				label = "0:appsbl";
+				reg = <0x540000 0xa0000>;
+				read-only;
+			};
+
+			partition@5e0000 {
+				label = "0:appsbl_1";
+				reg = <0x5e0000 0xa0000>;
+				read-only;
+			};
+
+			/*
+			 * The ethernet MAC slots at the start of ART are blank and
+			 * U-Boot's ethaddr is the generic 00:03:7f:ba:db:ad. The
+			 * only per-unit address is the radio MAC in the 2.4 GHz
+			 * calibration data, so the ports are derived from it.
+			 */
+			partition@680000 {
+				label = "0:art";
+				reg = <0x680000 0x100000>;
+				read-only;
+
+				nvmem-layout {
+					compatible = "fixed-layout";
+					#address-cells = <1>;
+					#size-cells = <1>;
+
+					macaddr_art_100e: macaddr@100e {
+						compatible = "mac-base";
+						reg = <0x100e 0x6>;
+						#nvmem-cell-cells = <1>;
+					};
+				};
+			};
+
+			partition@780000 {
+				label = "0:ethphyfw";
+				reg = <0x780000 0x80000>;
+				read-only;
+
+				nvmem-layout {
+					compatible = "fixed-layout";
+
+					/* AQR113C firmware image behind a 40-byte U-Boot header */
+					aqr_fw: aqr-fw@28 {
+						reg = <0x28 0x5f802>;
+					};
+				};
+			};
+		};
+	};
+};
+
+&usb_0_dwc3 {
+	dr_mode = "host";
+};
+
+/* No vdda-pll-supply: the PLL rail is left as the bootloader set it. */
+&usb_0_qmpphy {
+	vdda-phy-supply = <&regulator_fixed_0p925>;
+	status = "okay";
+};
+
+&usb_0_qusbphy {
+	vdd-supply = <&regulator_fixed_0p925>;
+	vdda-phy-dpdm-supply = <&regulator_fixed_3p3>;
+	status = "okay";
+};
+
+&usb3 {
+	status = "okay";
+};
+
+&mdio {
+	reset-gpios = <&tlmm 60 GPIO_ACTIVE_LOW>;
+	clock-frequency = <6250000>;
+	status = "okay";
+
+	ethernet-phy-package@0 {
+		compatible = "qcom,qca8075-package";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		reg = <0x10>;
+		qcom,package-mode = "psgmii";
+
+		phy0: ethernet-phy@10 {
+			reg = <0x10>;
+		};
+
+		phy1: ethernet-phy@11 {
+			reg = <0x11>;
+		};
+
+		phy2: ethernet-phy@12 {
+			reg = <0x12>;
+		};
+
+		phy3: ethernet-phy@13 {
+			reg = <0x13>;
+		};
+	};
+
+	phy4: ethernet-phy@8 {
+		compatible = "ethernet-phy-ieee802.3-c45";
+		reg = <8>;
+		nvmem-cells = <&aqr_fw>;
+		nvmem-cell-names = "firmware";
+	};
+
+	phy5: ethernet-phy@0 {
+		compatible = "ethernet-phy-ieee802.3-c45";
+		reg = <0>;
+		nvmem-cells = <&aqr_fw>;
+		nvmem-cell-names = "firmware";
+	};
+};
+
+&qcom_ppe {
+	ethernet-ports {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		port@1 {
+			reg = <1>;
+			phy-mode = "psgmii";
+			managed = "in-band-status";
+			label = "lan1";
+			phy-handle = <&phy0>;
+			nvmem-cells = <&macaddr_art_100e 1>;
+			nvmem-cell-names = "mac-address";
+			pcs-handle = <&pcs0_ch0>;
+			clocks = <&nsscc NSS_CC_PORT1_MAC_CLK>,
+				 <&nsscc NSS_CC_PORT1_RX_CLK>,
+				 <&nsscc NSS_CC_PORT1_TX_CLK>;
+			clock-names = "mac",
+				      "rx",
+				      "tx";
+			resets = <&nsscc PORT1_MAC_ARES>,
+				 <&nsscc PORT1_RX_ARES>,
+				 <&nsscc PORT1_TX_ARES>;
+			reset-names = "mac",
+				      "rx",
+				      "tx";
+		};
+
+		port@2 {
+			reg = <2>;
+			phy-mode = "psgmii";
+			managed = "in-band-status";
+			label = "lan2";
+			phy-handle = <&phy1>;
+			nvmem-cells = <&macaddr_art_100e 1>;
+			nvmem-cell-names = "mac-address";
+			pcs-handle = <&pcs0_ch1>;
+			clocks = <&nsscc NSS_CC_PORT2_MAC_CLK>,
+				 <&nsscc NSS_CC_PORT2_RX_CLK>,
+				 <&nsscc NSS_CC_PORT2_TX_CLK>;
+			clock-names = "mac",
+				      "rx",
+				      "tx";
+			resets = <&nsscc PORT2_MAC_ARES>,
+				 <&nsscc PORT2_RX_ARES>,
+				 <&nsscc PORT2_TX_ARES>;
+			reset-names = "mac",
+				      "rx",
+				      "tx";
+		};
+
+		port@3 {
+			reg = <3>;
+			phy-mode = "psgmii";
+			managed = "in-band-status";
+			label = "lan3";
+			phy-handle = <&phy2>;
+			nvmem-cells = <&macaddr_art_100e 1>;
+			nvmem-cell-names = "mac-address";
+			pcs-handle = <&pcs0_ch2>;
+			clocks = <&nsscc NSS_CC_PORT3_MAC_CLK>,
+				 <&nsscc NSS_CC_PORT3_RX_CLK>,
+				 <&nsscc NSS_CC_PORT3_TX_CLK>;
+			clock-names = "mac",
+				      "rx",
+				      "tx";
+			resets = <&nsscc PORT3_MAC_ARES>,
+				 <&nsscc PORT3_RX_ARES>,
+				 <&nsscc PORT3_TX_ARES>;
+			reset-names = "mac",
+				      "rx",
+				      "tx";
+		};
+
+		port@4 {
+			reg = <4>;
+			phy-mode = "psgmii";
+			managed = "in-band-status";
+			label = "lan4";
+			phy-handle = <&phy3>;
+			nvmem-cells = <&macaddr_art_100e 1>;
+			nvmem-cell-names = "mac-address";
+			pcs-handle = <&pcs0_ch3>;
+			clocks = <&nsscc NSS_CC_PORT4_MAC_CLK>,
+				 <&nsscc NSS_CC_PORT4_RX_CLK>,
+				 <&nsscc NSS_CC_PORT4_TX_CLK>;
+			clock-names = "mac",
+				      "rx",
+				      "tx";
+			resets = <&nsscc PORT4_MAC_ARES>,
+				 <&nsscc PORT4_RX_ARES>,
+				 <&nsscc PORT4_TX_ARES>;
+			reset-names = "mac",
+				      "rx",
+				      "tx";
+		};
+
+		port@5 {
+			reg = <5>;
+			phy-mode = "usxgmii";
+			/*
+			 * In-band USXGMII AN is required: in PHY mode phylink
+			 * disables USX AN on the AQR113C and no data passes.
+			 */
+			managed = "in-band-status";
+			label = "lan5";
+			phy-handle = <&phy4>;
+			nvmem-cells = <&macaddr_art_100e 1>;
+			nvmem-cell-names = "mac-address";
+			pcs-handle = <&pcs1_ch0>;
+			clocks = <&nsscc NSS_CC_PORT5_MAC_CLK>,
+				 <&nsscc NSS_CC_PORT5_RX_CLK>,
+				 <&nsscc NSS_CC_PORT5_TX_CLK>;
+			clock-names = "mac",
+				      "rx",
+				      "tx";
+			resets = <&nsscc PORT5_MAC_ARES>,
+				 <&nsscc PORT5_RX_ARES>,
+				 <&nsscc PORT5_TX_ARES>;
+			reset-names = "mac",
+				      "rx",
+				      "tx";
+		};
+
+		port@6 {
+			reg = <6>;
+			phy-mode = "usxgmii";
+			managed = "in-band-status";
+			label = "wan";
+			phy-handle = <&phy5>;
+			nvmem-cells = <&macaddr_art_100e 2>;
+			nvmem-cell-names = "mac-address";
+			pcs-handle = <&pcs2_ch0>;
+			clocks = <&nsscc NSS_CC_PORT6_MAC_CLK>,
+				 <&nsscc NSS_CC_PORT6_RX_CLK>,
+				 <&nsscc NSS_CC_PORT6_TX_CLK>;
+			clock-names = "mac",
+				      "rx",
+				      "tx";
+			resets = <&nsscc PORT6_MAC_ARES>,
+				 <&nsscc PORT6_RX_ARES>,
+				 <&nsscc PORT6_TX_ARES>;
+			reset-names = "mac",
+				      "rx",
+				      "tx";
+		};
+	};
+};
