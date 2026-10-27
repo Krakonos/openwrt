@@ -1,0 +1,38 @@
+From: Ladislav Laska <krakonos@krakonos.org>
+Subject: net: ethernet: qualcomm: ppe: clamp tx_errors at zero
+
+tx_errors is computed as all TX frames minus good TX frames. On an XGMAC
+port with an AQR113C the good counter was seen two frames ahead of the
+all-frame counter on an idle link (tx_frames 36419, tx_frames_g 36421,
+unicast + multicast = 36419), so tx_errors wrapped to 2^64 - 2. Clamp
+the difference at zero.
+
+Signed-off-by: Ladislav Laska <krakonos@krakonos.org>
+---
+--- a/drivers/net/ethernet/qualcomm/ppe/ppe_port.c
++++ b/drivers/net/ethernet/qualcomm/ppe/ppe_port.c
+@@ -493,6 +493,8 @@ void ppe_port_get_ethtool_stats(struct p
+ void ppe_port_get_stats64(struct ppe_port *ppe_port,
+ 			  struct rtnl_link_stats64 *s)
+ {
++	u64 tx_good;
++
+ 	s->multicast = ppe_port_xgmib_get(ppe_port, xgmib_rx_multicast_g);
+ 
+ 	s->rx_packets = s->multicast;
+@@ -514,8 +516,13 @@ void ppe_port_get_stats64(struct ppe_por
+ 
+ 	s->tx_fifo_errors = ppe_port_xgmib_get(ppe_port,
+ 					       xgmib_tx_underflow_err);
+-	s->tx_errors = s->tx_packets -
+-		ppe_port_xgmib_get(ppe_port, xgmib_tx_frames_g);
++	/*
++	 * The good-frame counter can run slightly ahead of the all-frame
++	 * counter (seen on an idle AQR113C port: good = all + 2), so clamp
++	 * the difference instead of letting it wrap.
++	 */
++	tx_good = ppe_port_xgmib_get(ppe_port, xgmib_tx_frames_g);
++	s->tx_errors = s->tx_packets > tx_good ? s->tx_packets - tx_good : 0;
+ 
+ 	if (ppe_port->gmib_stats) {
+ 		u64 *gsrc = ppe_port->gmib_stats;
