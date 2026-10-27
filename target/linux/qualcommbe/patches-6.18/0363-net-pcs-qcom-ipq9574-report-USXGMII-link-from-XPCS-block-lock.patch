@@ -1,0 +1,41 @@
+From: Ladislav Laska <krakonos@krakonos.org>
+Subject: [PATCH] net: pcs: qcom-ipq9574: report USXGMII link from XPCS block lock
+
+The AQR113C on the Compex AP.AL02.3 completes USXGMII auto-negotiation
+with the XPCS (speed is passed correctly in VR_MII_AN_INTR_STS) but never
+sets the link bit of the control word, so with in-band mode phylink never
+saw the PCS link come up. The vendor QSDK takes the link from the PHY and
+reads the same 0 there.
+
+In-band AN is required on this link: with USX auto-negotiation disabled on
+the PHY (which phylink does in PHY mode) the data path stays dead in both
+directions even though the XPCS has block lock.
+
+For single-channel USXGMII (not 10G-QXGMII), fall back to the XPCS
+64b/66b block lock when the AN link bit is clear. phylink ANDs the PCS
+link with the PHY link in in-band mode.
+
+Signed-off-by: Ladislav Laska <krakonos@krakonos.org>
+---
+--- a/drivers/net/pcs/pcs-qcom-ipq9574.c
++++ b/drivers/net/pcs/pcs-qcom-ipq9574.c
+@@ -253,6 +253,19 @@ static void ipq_pcs_get_state_usxgmii(st
+ 
+ 	state->link = !!(val & XPCS_USXG_AN_LINK_STS);
+ 
++	/* The AQR113C completes USXGMII auto-negotiation and passes the
++	 * negotiated speed, but never sets the link bit in its control word,
++	 * also not under the vendor QSDK. On a single-channel USXGMII link,
++	 * fall back to the 64b/66b block lock of the XPCS; phylink ANDs this
++	 * with the PHY link state anyway.
++	 */
++	if (!state->link && state->interface == PHY_INTERFACE_MODE_USXGMII) {
++		unsigned int kr;
++
++		ret = regmap_read(qpcs->regmap, XPCS_KR_STS, &kr);
++		state->link = !ret && (kr & XPCS_KR_LINK_STS);
++	}
++
+ 	if (!state->link)
+ 		return;
+ 
